@@ -1,75 +1,51 @@
 import os
-import requests
-import edge_tts
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from flask import Flask
+from threading import Thread
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import edge_tts
 
-# --- Settings ---
-GEMINI_API_KEY = "AIzaSyB34qbepGTRalPufOAIA4eCsO2UioWOfl4"
-TELEGRAM_BOT_TOKEN = "8629308104:AAF3_J53Ze6kwym86_sznHzxd0PQ2yg6KsE"
+# --- Render အတွက် Web Server အပိုင်း ---
+app = Flask('')
 
-user_data = {}
+@app.route('/')
+def home():
+    return "Bot is running!"
 
-def get_gemini_fix(text, mood):
-    if len(text) > 600: return text 
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        prompt = f"အောက်ပါစာသားကို {mood} ပုံစံပေါက်အောင် မြန်မာစကားပြော ပြင်ပေးပါ။ စာသားသက်သက်ပဲ ပြန်ဖြေပါ: {text}"
-        response = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-        data = response.json()
-        return data['candidates'][0]['content']['parts'][0]['text'] if 'candidates' in data else text
-    except: return text
+def run():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    text = update.message.text
-    if chat_id not in user_data: user_data[chat_id] = {'voice': 'my-MM-NilarNeural', 'mood': 'ပုံမှန်'}
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+# ----------------------------------
 
-    settings_map = {
-        'Nilar': ('voice', 'my-MM-NilarNeural'), 'Thiha': ('voice', 'my-MM-ThihaNeural'),
-        'ပျော်ရွှင်': ('mood', 'ပျော်ရွှင်တက်ကြွတဲ့'), 'ဝမ်းနည်း': ('mood', 'ဝမ်းနည်းကြေကွဲနေတဲ့'),
-        'ဒေါသ': ('mood', 'ဒေါသထွက်နေတဲ့'), 'လူကြီး': ('mood', 'တည်ငြိမ်ရင့်ကျက်တဲ့ လူကြီး'),
-        'ကလေး': ('mood', 'ချစ်စရာကောင်းတဲ့ ကလေးငယ်'), 'ပုံမှန်': ('mood', 'ပုံမှန်')
-    }
-
-    if len(text) < 30:
-        for key, (category, val) in settings_map.items():
-            if key in text:
-                user_data[chat_id][category] = val
-                return await update.message.reply_text(f"✅ {text} သို့ ပြောင်းလိုက်ပါပြီ။")
-
-    await context.bot.send_chat_action(chat_id=chat_id, action="record_voice")
-    filename = f"voice_{chat_id}.mp3"
-
-    try:
-        fixed_text = get_gemini_fix(text, user_data[chat_id]['mood'])
-        communicate = edge_tts.Communicate(fixed_text, user_data[chat_id]['voice'])
-        await communicate.save(filename)
-
-        with open(filename, 'rb') as audio:
-            await update.message.reply_voice(voice=audio)
-            audio.seek(0)
-            await context.bot.send_audio(
-                chat_id=chat_id,
-                audio=audio,
-                title="TTS Recording",
-                filename="save_this_audio.mp3",
-                caption="📥 ဖုန်းထဲသိမ်းရန် အစက် ၃ စက်ကိုနှိပ်ပြီး Save to Music လုပ်ပါဗျာ။"
-            )
-        os.remove(filename)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+# Bot Token နဲ့ API Keys
+TOKEN = os.environ.get('BOT_TOKEN')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['👩 Nilar', '👨 Thiha'], ['😊 ပျော်ရွှင်', '😢 ဝမ်းနည်း'], ['😡 ဒေါသ', '👴 လူကြီး'], ['👶 ကလေး', '😐 ပုံမှန်']]
-    await update.message.reply_text("TTS Bot အဆင်သင့်ဖြစ်ပါပြီ။", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    await update.message.reply_text("မင်္ဂလာပါတူလေး! အန်တီ့ရဲ့ TTS Bot က အဆင်သင့်ပါပဲ။")
 
-def main():
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is running...")
-    app.run_polling()
+async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    output_file = "output.mp3"
+    
+    # TTS ပြောင်းလဲခြင်း
+    communicate = edge_tts.Communicate(text, "my-MM-ThihaNeural")
+    await communicate.save(output_file)
+    
+    # အသံဖိုင် ပေးပို့ခြင်း
+    with open(output_file, 'rb') as audio:
+        await update.message.reply_audio(audio)
+    os.remove(output_file)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    keep_alive() # Web Server ကို အရင်ဖွင့်မယ်
+    app_bot = ApplicationBuilder().token(TOKEN).build()
+    
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_to_speech))
+    
+    print("Bot is starting...")
+    app_bot.run_polling()
