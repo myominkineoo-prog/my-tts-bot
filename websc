@@ -1,1 +1,0 @@
-echo '{"inbounds":[{"port":10000,"protocol":"vless","settings":{"clients":[{"id":"b831381d-6324-4d53-ad4f-8cda98b3c811","level":0}],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/"}}}],"outbounds":[{"protocol":"freedom"}]}' > xray_bin/config.json
